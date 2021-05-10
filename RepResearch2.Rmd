@@ -1,0 +1,110 @@
+# The Economic and Health Impacts of Severe Weather
+
+### *10 May 2021*
+
+## Synopsis
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.  In this analysis, I answer questions regarding the most damaging types of severe weather from both economic and population health perspectives.
+
+## Data Processing and Preparation
+
+The following packages will be needed to reproduce the analysis:
+
+```{r echo=TRUE}
+
+library(plyr)
+library(dplyr)
+library(ggplot2)
+
+```
+
+
+Next, we will need to upload and clean the data from the original CSV file.  The "FATALITIES" and "INJURIES" variables will be used to measure the impact on population health, and the remaining variables will be used to analyze economic impacts.
+
+```{r echo=TRUE}
+Stormdata <- read.csv("repdata_data_StormData.csv.bz2")
+
+storm <- Stormdata[c("EVTYPE","FATALITIES","INJURIES","PROPDMG","PROPDMGEXP","CROPDMG","CROPDMGEXP")]
+```
+
+Here, I am converting the economic variables into the numeric datatype:
+
+```{r echo=TRUE}
+
+storm$PROPDMGEXP <- mapvalues(storm$PROPDMGEXP, from = c("K", "M","", "B", "m", "+", "0", "5", "6", "?", "4", "2", "3", "h", "7", "H", "-", "1", "8"), to = c(10^3, 10^6, 1, 10^9, 10^6, 0,1,10^5, 10^6, 0, 10^4, 10^2, 10^3, 10^2, 10^7, 10^2, 0, 10, 10^8))
+
+storm$PROPDMGEXP<- as.numeric(as.character(storm$PROPDMGEXP))
+
+storm$PROPDMGTOTAL<- (storm$PROPDMG * storm$PROPDMGEXP)/1000000000
+
+storm$CROPDMGEXP<- mapvalues(storm$CROPDMGEXP, from = c("","M", "K", "m", "B", "?", "0", "k","2"), to = c(1,10^6, 10^3, 10^6, 10^9, 0, 1, 10^3, 10^2))
+storm$CROPDMGEXP<- as.numeric(as.character(storm$CROPDMGEXP))
+storm$CROPDMGTOTAL<- (storm$CROPDMG * storm$CROPDMGEXP)/1000000000
+
+storm$DAMAGETOTAL<- storm$PROPDMGTOTAL + storm$CROPDMGEXP
+
+detach(package:plyr)
+
+```
+
+Now, the "EVTYPE" variable can be summarized into broader bucket categories for our analysis.
+
+```{r echo=TRUE}
+storm_type<- storm %>%
+  mutate(evtypegrp = ifelse(grepl("LIGHTNING|LIGNTNING", EVTYPE), "LIGHTNING", ifelse(grepl("HAIL", EVTYPE), "HAIL", ifelse(grepl("RAIN|FLOOD|WET|FLD", EVTYPE), "RAIN", ifelse(grepl("SNOW|WINTER|WINTRY|BLIZZARD|SLEET|COLD|ICE|FREEZE|AVALANCHE|ICY", EVTYPE), "WINTER",
+ifelse(grepl("TORNADO|FUNNEL", EVTYPE), "TORNADO",
+ifelse(grepl("WIND|HURRICANE", EVTYPE), "WINDS",
+ifelse(grepl("STORM|THUNDER|TSTM|TROPICAL +STORM", EVTYPE), "STORM",
+ifelse(grepl("FIRE", EVTYPE), "FIRE",
+ifelse(grepl("FOG|VISIBILITY|DARK|DUST", EVTYPE), "FOG",
+ifelse(grepl("WAVE|SURF|SURGE|TIDE|TSUNAMI|CURRENT|SWELL", EVTYPE), "WAVE",
+ifelse(grepl("HEAT|HIGH +TEMP|RECORD +TEMP|WARM|DRY", EVTYPE), "HEAT",
+ifelse(grepl("VOLCAN", EVTYPE), "VOLCANO",
+ifelse(grepl("DROUGHT", EVTYPE), "DROUGHT","OTHER"))))))))))))))
+```
+
+
+## Results
+
+### Across the United States, which types of events are most harmful to population health?
+
+The following code creates a plot which shows that tornadoes have the higher number of fatalities compared to other event types.
+
+```{r echo=TRUE}
+
+event_sum<- storm_type %>% group_by(evtypegrp) %>% summarise(damage = sum(DAMAGETOTAL), property= sum(PROPDMGTOTAL), crops = sum(CROPDMGTOTAL), fatalities = sum(FATALITIES), injuries = sum(INJURIES))
+
+fatalities<-head(event_sum[order(event_sum$fatalities, decreasing=TRUE),],5)
+
+ggplot(fatalities, aes(evtypegrp,fatalities, fill = fatalities)) + geom_bar(stat = "identity") +labs( x= "Event Type", y = "Number of Fatalities") + ggtitle("Total Fatalities by Event")
+
+```
+
+Similarly, we can see that tornadoes also have high rates of injury compared to other event types.
+
+```{r echo=TRUE}
+injuries<- head(event_sum[order(event_sum$injuries, decreasing = TRUE),], 5)
+
+ggplot(injuries, aes(evtypegrp, injuries, fill=injuries)) + geom_bar(stat = "identity") + labs(x = "Event Type", y = "Number of Injuries") + ggtitle("Total Injuries by Event")
+
+```
+
+### Across the United States, which types of events have the greatest economic consequences?
+
+The following plot shows that property damage is strongly linked to rain, followed by winds.  On the other hand, crop damage is most common with drought, followed by rain.
+
+```{r echo=TRUE}
+
+damage <-head(event_sum[order(event_sum$damage, decreasing=TRUE),],5)
+property <- damage %>% mutate(damage_type="Property", damage_amount=property)
+crops <- damage %>% mutate(damage_type="Crops", damage_amount=crops)
+damage_major <- rbind(property,crops)
+
+ggplot(damage_major, aes(evtypegrp, damage_amount, fill=factor(damage_type))) +
+  geom_bar(stat = "identity") + 
+  ylab("Economical damage from 1950 to 2011") +
+  xlab("Event Type") +
+  scale_fill_discrete(name = "Damage") +
+  ggtitle ("Total Economical Damage caused by Event")
+
+```
